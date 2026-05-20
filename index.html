@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Mis Mezcales POS</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/modules.css">
+  <script src="https://cdn.jsdelivr.net/npm/dexie@3.2.3/dist/dexie.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="js/db.js" defer></script>
+  <script src="js/auth.js" defer></script>
+  <script src="js/router.js" defer></script>
+  <script src="js/pos.js" defer></script>
+  <script src="js/inventory.js" defer></script>
+  <script src="js/reports.js" defer></script>
+  <script src="js/cashregister.js" defer></script>
+  <script src="js/printer.js" defer></script>
+  <script src="js/settings.js" defer></script>
+</head>
+<body>
+
+<!-- Pantalla de Login -->
+<div id="login-screen" class="login-overlay">
+  <div class="login-card">
+    <h2>🌵 Mis Mezcales</h2>
+    <p style="font-size: 0.9rem; margin-bottom: 16px;">Sistema de Punto de Venta</p>
+    <input type="text" id="login-username" placeholder="Usuario" autocomplete="off">
+    <input type="password" id="login-password" placeholder="Contraseña">
+    <button onclick="doLogin()">Ingresar</button>
+    <div class="error-msg" id="login-error"></div>
+    <small style="display: block; margin-top: 16px;">Demo: admin / mezcal2024 | cajero1 / cajero123</small>
+  </div>
+</div>
+
+<!-- Aplicación principal (oculta hasta login) -->
+<div class="app-container" id="app-main" style="display: none;">
+  
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="logo-area">
+      <h1>🌵 Mezcales</h1>
+      <p>Punto de venta</p>
+    </div>
+    <ul class="nav-links">
+      <li data-route="pos-module" onclick="location.hash='pos'">
+        <span>🛒</span> Punto de Venta
+      </li>
+      <li data-route="inventory-module" onclick="location.hash='inventory'">
+        <span>📦</span> Inventario
+      </li>
+      <li data-route="reports-module" onclick="location.hash='reports'">
+        <span>📊</span> Reportes
+      </li>
+      <li data-route="cashregister-module" onclick="location.hash='cashregister'">
+        <span>💰</span> Corte de Caja
+      </li>
+      <li data-route="settings-module" onclick="location.hash='settings'">
+        <span>⚙️</span> Configuración
+      </li>
+    </ul>
+    <div class="user-info">
+      <span id="user-name"></span>
+      <button id="logout-btn">Cerrar sesión</button>
+    </div>
+  </div>
+
+  <!-- Contenido principal -->
+  <div class="main-content">
+    
+    <!-- MÓDULO POS -->
+    <div id="pos-module" class="module">
+      <div class="pos-container">
+        <div class="products-panel">
+          <input type="text" id="product-search" class="search-bar" placeholder="🔍 Buscar producto..." onkeyup="refreshProductGrid()">
+          <div class="category-filters" id="category-filters">
+            <button class="category-filter active" data-cat="all" onclick="filterCategory('all')">Todos</button>
+            <button class="category-filter" data-cat="Mezcal" onclick="filterCategory('Mezcal')">🌵 Mezcal</button>
+            <button class="category-filter" data-cat="Artesanías" onclick="filterCategory('Artesanías')">🪵 Artesanías</button>
+            <button class="category-filter" data-cat="Textiles" onclick="filterCategory('Textiles')">🧣 Textiles</button>
+            <button class="category-filter" data-cat="Cerámica" onclick="filterCategory('Cerámica')">🏺 Cerámica</button>
+            <button class="category-filter" data-cat="Comestibles" onclick="filterCategory('Comestibles')">🍬 Comestibles</button>
+            <button class="category-filter" data-cat="Otros" onclick="filterCategory('Otros')">📦 Otros</button>
+          </div>
+          <div id="products-grid" class="products-grid">
+            <!-- Productos cargados dinámicamente -->
+          </div>
+        </div>
+        <div class="cart-panel">
+          <h3>🛒 Carrito</h3>
+          <div style="max-height: 400px; overflow-y: auto;">
+            <table width="100%" style="font-size: 0.9rem;">
+              <thead>
+                <tr><th>Producto</th><th>Cant</th><th>Precio</th><th>Dto%</th><th>Subtotal</th><th></th></tr>
+              </thead>
+              <tbody id="cart-items"></tbody>
+            </table>
+          </div>
+          <hr>
+          <div>Subtotal: $<span id="subtotal">0.00</span></div>
+          <div>Descuento global: 
+            <input type="number" id="discount-global" value="0" step="5" onchange="updateGlobalDiscount()" style="width: 70px;">% 
+            (-$<span id="global-discount-amount">0.00</span>)
+          </div>
+          <div style="font-size: 1.4rem; font-weight: bold; margin: 12px 0;">
+            TOTAL: $<span id="total-amount">0.00</span>
+          </div>
+          <button class="btn-primary" onclick="checkout()" style="width: 100%;">💵 Cobrar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MÓDULO INVENTARIO -->
+    <div id="inventory-module" class="module">
+      <h2>📦 Inventario</h2>
+      <div id="stock-alerts"></div>
+      <div style="margin-bottom: 16px;">
+        <button class="btn-primary" onclick="showProductModal()">+ Nuevo producto</button>
+        <div style="margin-top: 12px;">
+          <button class="filter-btn" data-filter="all" onclick="filterInventory('all')">Todos</button>
+          <button class="filter-btn" data-filter="Mezcal" onclick="filterInventory('Mezcal')">Mezcal</button>
+          <button class="filter-btn" data-filter="Artesanías" onclick="filterInventory('Artesanías')">Artesanías</button>
+          <button class="filter-btn" data-filter="Textiles" onclick="filterInventory('Textiles')">Textiles</button>
+          <button class="filter-btn" data-filter="Cerámica" onclick="filterInventory('Cerámica')">Cerámica</button>
+          <button class="filter-btn" data-filter="Comestibles" onclick="filterInventory('Comestibles')">Comestibles</button>
+        </div>
+      </div>
+      <div style="overflow-x: auto;">
+        <table class="inventory-table">
+          <thead>
+            <tr>
+              <th onclick="sortInventory('name')">Nombre ↕️</th>
+              <th onclick="sortInventory('category')">Categoría ↕️</th>
+              <th onclick="sortInventory('price')">Precio Venta ↕️</th>
+              <th onclick="sortInventory('cost')">Costo ↕️</th>
+              <th onclick="sortInventory('stock')">Stock ↕️</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="inventory-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- MÓDULO REPORTES -->
+    <div id="reports-module" class="module">
+      <h2>📊 Estadísticas y Reportes</h2>
+      <div class="kpi-cards">
+        <div class="kpi-card">💰 Ventas hoy<br><span id="sales-today">$0</span></div>
+        <div class="kpi-card">📦 Transacciones hoy<br><span id="transactions-today">0</span></div>
+        <div class="kpi-card">📈 Ventas esta semana<br><span id="sales-week">$0</span></div>
+        <div class="kpi-card">📉 Stock bajo<br><span id="low-stock-count">0</span></div>
+      </div>
+      <div class="chart-grid">
+        <div><canvas id="daily-sales-chart" width="400" height="200"></canvas></div>
+        <div><canvas id="payment-method-chart" width="400" height="200"></canvas></div>
+        <div><canvas id="trend-chart" width="400" height="200"></canvas></div>
+        <div><canvas id="top-products-chart" width="400" height="200"></canvas></div>
+      </div>
+      
+      <h3 style="margin-top: 32px;">📋 Historial de Ventas</h3>
+      <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px;">
+        <input type="date" id="filter-start-date" placeholder="Fecha inicio">
+        <input type="date" id="filter-end-date" placeholder="Fecha fin">
+        <select id="filter-payment-method">
+          <option value="all">Todos los métodos</option>
+          <option value="cash">Efectivo</option>
+          <option value="card">Tarjeta</option>
+        </select>
+        <select id="filter-user">
+          <option value="all">Todos los usuarios</option>
+        </select>
+        <button class="btn-secondary" onclick="applySalesFilters()">Filtrar</button>
+        <button class="btn-primary" onclick="exportSalesToCSV()">📎 Exportar CSV</button>
+      </div>
+      <div style="overflow-x: auto;">
+        <table class="inventory-table">
+          <thead><tr><th>Folio</th><th>Fecha</th><th>Total</th><th>Método</th><th>Usuario</th></tr></thead>
+          <tbody id="sales-history-tbody"></tbody>
+        </table>
+      </div>
+      <div id="sales-pagination" style="margin-top: 16px; text-align: center;"></div>
+    </div>
+
+    <!-- MÓDULO CORTE DE CAJA -->
+    <div id="cashregister-module" class="module">
+      <h2>💰 Corte de Caja</h2>
+      <div class="corte-summary">
+        <div id="cut-controls"></div>
+        <div id="cut-summary" style="margin-top: 20px;"></div>
+      </div>
+    </div>
+
+    <!-- MÓDULO CONFIGURACIÓN -->
+    <div id="settings-module" class="module">
+      <h2>⚙️ Configuración</h2>
+      
+      <div class="card">
+        <h3>🏪 Datos del Negocio</h3>
+        <input type="text" id="business-name" placeholder="Nombre del negocio" style="margin-bottom: 8px;">
+        <input type="text" id="business-address" placeholder="Dirección" style="margin-bottom: 8px;">
+        <input type="text" id="business-phone" placeholder="Teléfono" style="margin-bottom: 8px;">
+        <textarea id="thankyou-message" rows="2" placeholder="Mensaje de agradecimiento en ticket"></textarea>
+        <button class="btn-primary" onclick="saveBusinessSettings()" style="margin-top: 12px;">Guardar datos</button>
+      </div>
+
+      <div class="card">
+        <h3>👥 Usuarios</h3>
+        <button class="btn-secondary" onclick="showUserModal()">+ Nuevo usuario</button>
+        <div style="overflow-x: auto; margin-top: 12px;">
+          <table class="inventory-table">
+            <thead><tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Acciones</th></tr></thead>
+            <tbody id="users-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🖨️ Impresora Bluetooth</h3>
+        <button class="btn-secondary" onclick="connectBluetoothPrinter()">🔌 Conectar impresora</button>
+        <div id="printer-status" style="margin-top: 8px; font-size: 0.9rem;"></div>
+        <small>⚠️ Web Bluetooth requiere conexión segura (HTTPS o localhost). Para tickets ESC/POS.</small>
+      </div>
+
+      <div class="card">
+        <h3>💾 Respaldo de Datos</h3>
+        <button class="btn-secondary" onclick="exportBackup()">📤 Exportar backup (JSON)</button>
+        <div style="margin-top: 12px;">
+          <input type="file" id="import-file" accept=".json">
+          <button class="btn-secondary" onclick="importBackup(document.getElementById('import-file'))">📥 Importar backup</button>
+        </div>
+      </div>
+    </div>
+
+  </div> <!-- fin main-content -->
+</div> <!-- fin app-container -->
+
+<!-- ==================== MODALES ==================== -->
+
+<!-- Modal de Pago (POS) -->
+<div id="payment-modal" class="modal">
+  <div class="modal-content">
+    <h3>💳 Realizar Pago</h3>
+    <select id="payment-method" onchange="toggleCashFields()">
+      <option value="cash">Efectivo</option>
+      <option value="card">Tarjeta</option>
+    </select>
+    <div id="cash-fields" style="margin-top: 12px;">
+      <label>Monto recibido: $</label>
+      <input type="number" id="received-amount" placeholder="0.00" oninput="calculateChange()">
+      <div>Cambio: $<span id="change-amount">0.00</span></div>
+    </div>
+    <div style="margin-top: 20px; display: flex; gap: 12px;">
+      <button class="btn-success" onclick="confirmSale()">Confirmar venta</button>
+      <button class="btn-secondary" onclick="closeModal('payment-modal')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Producto (Inventario) -->
+<div id="product-modal" class="modal">
+  <div class="modal-content">
+    <h3 id="product-modal-title">Producto</h3>
+    <input type="hidden" id="product-id">
+    <input type="text" id="product-name" placeholder="Nombre del producto *" required>
+    <input type="text" id="product-sku" placeholder="SKU (opcional)">
+    <select id="product-category">
+      <option value="Mezcal">🌵 Mezcal</option>
+      <option value="Artesanías">🪵 Artesanías</option>
+      <option value="Textiles">🧣 Textiles</option>
+      <option value="Cerámica">🏺 Cerámica</option>
+      <option value="Comestibles">🍬 Comestibles</option>
+      <option value="Otros">📦 Otros</option>
+    </select>
+    <input type="number" id="product-price" placeholder="Precio de venta *" step="0.01" required>
+    <input type="number" id="product-cost" placeholder="Precio de costo" step="0.01">
+    <input type="number" id="product-stock" placeholder="Stock actual" value="0">
+    <input type="number" id="product-minstock" placeholder="Stock mínimo para alerta" value="5">
+    <label style="display: flex; align-items: center; gap: 8px;">
+      <input type="checkbox" id="product-active" checked> Producto activo
+    </label>
+    <div style="margin-top: 20px; display: flex; gap: 12px;">
+      <button class="btn-success" onclick="saveProduct()">Guardar</button>
+      <button class="btn-secondary" onclick="closeProductModal()">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Usuario (Configuración) -->
+<div id="user-modal" class="modal">
+  <div class="modal-content">
+    <h3 id="user-modal-title">Usuario</h3>
+    <input type="hidden" id="user-id">
+    <input type="text" id="user-username" placeholder="Nombre de usuario *" required>
+    <select id="user-role">
+      <option value="admin">👑 Administrador</option>
+      <option value="cajero">💳 Cajero</option>
+    </select>
+    <input type="password" id="user-password" placeholder="Contraseña (dejar vacío para no cambiar)">
+    <div style="margin-top: 20px; display: flex; gap: 12px;">
+      <button class="btn-success" onclick="saveUser()">Guardar</button>
+      <button class="btn-secondary" onclick="closeUserModal()">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Detalle de Venta (Reportes) -->
+<div id="sale-detail-modal" class="modal">
+  <div class="modal-content">
+    <div id="sale-detail-content"></div>
+    <button class="btn-secondary" onclick="closeModal('sale-detail-modal')" style="margin-top: 16px;">Cerrar</button>
+  </div>
+</div>
+
+<!-- Modal Corte de Caja -->
+<div id="cut-modal" class="modal">
+  <div class="modal-content">
+    <div id="cut-modal-content"></div>
+    <button class="btn-secondary" onclick="closeModal('cut-modal')" style="margin-top: 16px;">Cerrar</button>
+  </div>
+</div>
+
+<!-- Drawer para Carrito (Móvil) -->
+<div id="cart-drawer" class="cart-drawer">
+  <span class="close-drawer" onclick="toggleCartDrawer()">&times;</span>
+  <h3>🛒 Carrito</h3>
+  <div id="drawer-cart-content">
+    <!-- Se llena dinámicamente desde pos.js -->
+  </div>
+  <button class="btn-primary" onclick="checkout()" style="width: 100%; margin-top: 16px;">💵 Cobrar</button>
+</div>
+<div class="btn-drawer" onclick="toggleCartDrawer()">🛒</div>
+
+<!-- ==================== SCRIPTS PRINCIPALES ==================== -->
+<script>
+  // Función global para cerrar modales
+  function closeModal(modalId) {
+    document.getElementById(modalId).classList.remove('active');
+  }
+
+  // Función para filtrar categorías en POS (global)
+  function filterCategory(cat) {
+    document.querySelectorAll('.category-filter').forEach(btn => btn.classList.remove('active'));
+    const target = document.querySelector(`.category-filter[data-cat="${cat}"]`);
+    if (target) target.classList.add('active');
+    if (window.refreshProductGrid) window.refreshProductGrid();
+  }
+
+  // Login
+  async function doLogin() {
+    const username = document.getElementById('login-username').value;
+    const password = document.getElementById('login-password').value;
+    const success = await window.auth.login(username, password);
+    if (success) {
+      document.getElementById('login-screen').style.display = 'none';
+      document.getElementById('app-main').style.display = 'flex';
+      const user = window.auth.getCurrentUser();
+      document.getElementById('user-name').innerHTML = `👤 ${user.username} (${user.role === 'admin' ? 'Admin' : 'Cajero'})`;
+      
+      // Inicializar router y protección
+      if (window.initRouter) window.initRouter();
+      if (window.protectRoutes) window.protectRoutes();
+      
+      // Cargar datos iniciales
+      if (window.refreshProductGrid) window.refreshProductGrid();
+      if (window.loadInventory) window.loadInventory();
+      if (window.renderReports) window.renderReports();
+      if (window.loadCashRegister) window.loadCashRegister();
+      if (window.loadSettings) window.loadSettings();
+      
+      // Cargar usuarios en filtro de reportes
+      loadUsersForFilter();
+    } else {
+      document.getElementById('login-error').innerText = 'Usuario o contraseña incorrectos';
+    }
+  }
+
+  async function loadUsersForFilter() {
+    const users = await db.users.where('active').equals(1).toArray();
+    const select = document.getElementById('filter-user');
+    select.innerHTML = '<option value="all">Todos los usuarios</option>';
+    users.forEach(u => {
+      select.innerHTML += `<option value="${u.id}">${u.username}</option>`;
+    });
+  }
+
+  // Logout
+  document.getElementById('logout-btn').onclick = () => {
+    window.auth.logout();
+  };
+
+  // Verificar sesión al cargar
+  if (window.auth.checkAuth()) {
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app-main').style.display = 'flex';
+    const user = window.auth.getCurrentUser();
+    document.getElementById('user-name').innerHTML = `👤 ${user.username} (${user.role === 'admin' ? 'Admin' : 'Cajero'})`;
+    if (window.initRouter) window.initRouter();
+    if (window.protectRoutes) window.protectRoutes();
+    if (window.refreshProductGrid) window.refreshProductGrid();
+    if (window.loadInventory) window.loadInventory();
+    if (window.renderReports) window.renderReports();
+    if (window.loadCashRegister) window.loadCashRegister();
+    if (window.loadSettings) window.loadSettings();
+    loadUsersForFilter();
+  }
+
+  // Sincronizar drawer con carrito (llamar desde renderCart en pos.js)
+  // Sobrescribir renderCart para que también actualice el drawer
+  const originalRenderCart = window.renderCart;
+  if (originalRenderCart) {
+    window.renderCart = async function() {
+      if (originalRenderCart) await originalRenderCart();
+      const drawerContent = document.getElementById('drawer-cart-content');
+      if (drawerContent) {
+        const cartHtml = document.getElementById('cart-items')?.innerHTML || '';
+        drawerContent.innerHTML = `
+          <div style="max-height: 60vh; overflow-y: auto;">
+            <table width="100%" style="font-size: 0.85rem;">
+              <thead><tr><th>Producto</th><th>Cant</th><th>Subtotal</th></tr></thead>
+              <tbody>${cartHtml}</tbody>
+            </table>
+          </div>
+          <hr>
+          <div>Subtotal: $<span id="drawer-subtotal">${document.getElementById('subtotal')?.innerText || '0'}</span></div>
+          <div>Total: $<span id="drawer-total">${document.getElementById('total-amount')?.innerText || '0'}</span></div>
+        `;
+      }
+    };
+  }
+</script>
+
+</body>
+</html>
